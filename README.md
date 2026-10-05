@@ -1,18 +1,18 @@
 # Distributed Wagering Processor
 
-> A distributed financial service for iGaming wagering transactions with strong consistency guarantees.
+> Serviço financeiro distribuído para transações de apostas iGaming com garantias de consistência forte.
 
-## Overview
+## Visão Geral
 
-The Distributed Wagering Processor is a high-concurrency financial service designed to process wagering transactions (bets, wins, refunds, rollbacks) from multiple game providers while maintaining strict financial invariants:
+O **Distributed Wagering Processor** é um serviço financeiro de alta concorrência projetado para processar transações de apostas (apostas, ganhos, reembolsos, rollbacks) de múltiplos provedores de jogos mantendo invariantes financeiras rigorosas:
 
-- **No duplicate financial effects** - Idempotency guaranteed at database level
-- **No negative balances** - Balance never goes below zero
-- **Immutable ledger** - Every balance change has a corresponding ledger entry
-- **Atomic transactions** - Wallet, transaction, ledger, and outbox all in single SQL transaction
-- **Crash recovery** - Inbox/Outbox patterns survive process restarts
+- **Sem efeitos financeiros duplicados** - Idempotência garantida no nível do banco de dados
+- **Sem saldos negativos** - Saldo nunca fica abaixo de zero
+- **Ledger imutável** - Toda alteração de saldo tem lançamento correspondente no ledger
+- **Transações atômicas** - Wallet, transação, ledger e outbox em uma única transação SQL
+- **Recuperação de crash** - Padrões Inbox/Outbox sobrevivem a reinicializações de processo
 
-## Architecture
+## Arquitetura
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -22,10 +22,10 @@ The Distributed Wagering Processor is a high-concurrency financial service desig
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          WagerUseCase (Domain Logic)                        │
-│  • BET/WIN/LOSS/REFUND/ROLLBACK/OPENING rules                              │
-│  • Pessimistic locking (FOR UPDATE) per wallet                             │
-│  • Atomic: Wallet + Transaction + Ledger + Outbox                          │
+│                          WagerUseCase (Lógica de Domínio)                   │
+│  • Regras BET/WIN/LOSS/REFUND/ROLLBACK/OPENING                             │
+│  • Pessimistic locking (FOR UPDATE) por wallet                             │
+│  • Atômico: Wallet + Transação + Ledger + Outbox                           │
 └─────────────────────────────────┬───────────────────────────────────────────┘
                                   │
                     ┌─────────────┼─────────────┐
@@ -40,105 +40,102 @@ The Distributed Wagering Processor is a high-concurrency financial service desig
             └──────────────┘ └──────────┘ └────────────┘
 ```
 
-## Quick Start
+## Início Rápido
 
-### Prerequisites
+### Pré-requisitos
 
 - [Bun](https://bun.sh/) 1.0+
 - Docker & Docker Compose
 - PostgreSQL (via Docker)
-- LocalStack (for SQS via Docker)
+- LocalStack (para SQS via Docker)
 
-### 1. Start Infrastructure
+### 1. Iniciar Infraestrutura
 
 ```bash
 docker-compose up -d
 ```
 
-This starts:
-- **PostgreSQL** on port 5432 (database: `wagering`, user: `wagering`, password: `wagering`)
-- **LocalStack** on port 4566 (SQS endpoint)
+Isso inicia:
+- **PostgreSQL** na porta 5432 (database: `wagering`, usuário: `wagering`, senha: `wagering`)
+- **LocalStack** na porta 4566 (endpoint SQS)
 
-### 2. Install Dependencies
+### 2. Instalar Dependências
 
 ```bash
 bun install
 ```
 
-### 3. Run Migrations
+### 3. Executar Migrations
 
 ```bash
 bun run db:migrate
 ```
 
-### 4. Start Application
+### 4. Iniciar Aplicação
 
 ```bash
-# Development (with hot reload)
+# Desenvolvimento (com hot reload)
 bun run dev
 
-# Production
+# Produção
 bun run start
 ```
 
-The API will be available at:
+A API estará disponível em:
 - **HTTP API**: http://localhost:3000
 - **Swagger Docs**: http://localhost:3000/api/docs
 - **Health Checks**: http://localhost:3000/health/live | /health/ready
 
-### 5. Start Workers (separate terminals)
+### 5. Iniciar Workers (terminais separados)
 
 ```bash
-# Terminal 1: SQS Inbox Consumer
+# Terminal 1: SQS Inbox Consumer + Outbox + Pending Reference
 bun run src/workers.ts
-
-# Terminal 2: Outbox Publisher
-# (Included in workers.ts - runs all workers)
 ```
 
-Or run all workers together:
+Ou executar todos os workers juntos:
 ```bash
 bun run src/workers.ts
 ```
 
-## API Endpoints
+## Endpoints da API
 
 ### Wallets
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/wallets` | Create wallet for player |
-| GET | `/wallets/:walletId` | Get wallet details |
-| POST | `/wallets/:walletId/reconciliation` | Reconcile wallet with ledger |
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/wallets` | Criar wallet para jogador |
+| GET | `/wallets/:walletId` | Obter detalhes da wallet |
+| POST | `/wallets/:walletId/reconciliation` | Reconciliar wallet com ledger |
 
 ### Wagering
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/wagering/transactions` | Submit transaction (requires `Idempotency-Key`) |
-| GET | `/wagering/transactions/:transactionId` | Get transaction by ID |
-| GET | `/providers/:providerId/wagering/transactions/:externalTransactionId` | Get by provider + external ID |
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/wagering/transactions` | Submeter transação (requer `Idempotency-Key`) |
+| GET | `/wagering/transactions/:transactionId` | Obter transação por ID |
+| GET | `/providers/:providerId/wagering/transactions/:externalTransactionId` | Obter por provider + ID externo |
 
 ### Health
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health/live` | Liveness probe (always returns OK) |
-| GET | `/health/ready` | Readiness probe (checks PG + SQS) |
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/health/live` | Liveness probe (sempre retorna OK) |
+| GET | `/health/ready` | Readiness probe (verifica PG + SQS) |
 
-## Submitting Transactions
+## Submetendo Transações
 
-### Required Header
+### Header Obrigatório
 ```http
 Idempotency-Key: provider-a:transaction-123
 ```
 
-Format: `{providerId}:{externalTransactionId}`
+Formato: `{providerId}:{externalTransactionId}`
 
-### Request Body
+### Corpo da Requisição
 ```json
 {
   "providerId": "provider-a",
   "externalTransactionId": "txn-123",
-  "walletId": "uuid-of-wallet",
-  "playerId": "uuid-of-player",
+  "walletId": "uuid-da-wallet",
+  "playerId": "uuid-do-jogador",
   "roundId": "round-456",
   "gameId": "game-789",
   "kind": "BET",
@@ -148,26 +145,26 @@ Format: `{providerId}:{externalTransactionId}`
 }
 ```
 
-### Transaction Kinds
-| Kind | Description | Balance Effect | Ledger |
-|------|-------------|----------------|--------|
-| `OPENING` | Initial wallet funding | Credit | CREDIT |
-| `BET` | Place a bet | Debit | DEBIT |
-| `WIN` | Win payout | Credit | CREDIT |
-| `LOSS` | Bet lost | None | None |
-| `REFUND` | Refund a bet | Credit | CREDIT |
-| `ROLLBACK` | Reverse previous | Inverse | Inverse |
+### Tipos de Transação
+| Tipo | Descrição | Efeito no Saldo | Ledger |
+|------|-----------|-----------------|--------|
+| `OPENING` | Financiamento inicial da wallet | Crédito | CREDIT |
+| `BET` | Fazer uma aposta | Débito | DEBIT |
+| `WIN` | Pagamento de ganho | Crédito | CREDIT |
+| `LOSS` | Aposta perdida | Nenhum | Nenhum |
+| `REFUND` | Reembolsar uma aposta | Crédito | CREDIT |
+| `ROLLBACK` | Reverter operação anterior | Inverso | Inverso |
 
-### Response Codes
-| Code | Meaning |
-|------|---------|
-| 200 | Transaction processed (check `status` in body) |
-| 400 | Invalid payload or missing idempotency key |
-| 409 | Idempotency conflict (same key, different payload) |
-| 422 | Business rejection (insufficient balance, invalid reference, etc.) |
-| 503 | Transient infrastructure failure |
+### Códigos de Resposta
+| Código | Significado |
+|--------|-------------|
+| 200 | Transação processada (verifique `status` no corpo) |
+| 400 | Payload inválido ou idempotency key ausente |
+| 409 | Conflito de idempotência (mesma key, payload diferente) |
+| 422 | Rejeição de negócio (saldo insuficiente, referência inválida, etc.) |
+| 503 | Falha transitória de infraestrutura |
 
-### Example Response
+### Exemplo de Resposta
 ```json
 {
   "transactionId": "uuid",
@@ -177,131 +174,131 @@ Format: `{providerId}:{externalTransactionId}`
 }
 ```
 
-## Running Tests
+## Executando Testes
 
 ```bash
-# All tests
+# Todos os testes
 bun test
 
-# Watch mode
+# Modo watch
 bun test --watch
 
-# Unit tests only (77 tests)
+# Apenas testes unitários (77 testes)
 bun test src/domain
 
-# Integration tests (requires PostgreSQL)
+# Testes de integração (requer PostgreSQL)
 bun test test/integration
 ```
 
-## Load Testing
+## Teste de Carga
 
 ```bash
-# Basic load test
+# Teste de carga básico
 bun run test:load
 
-# Custom parameters
+# Parâmetros customizados
 BASE_URL=http://localhost:3000 CONCURRENT=100 TOTAL_REQUESTS=1000 bun run test:load
 
-# With existing wallet
+# Com wallet existente
 WALLET_ID=uuid PLAYER_ID=uuid CONCURRENT=50 TOTAL_REQUESTS=500 bun run test:load
 ```
 
-### Load Test Output
+### Saída do Teste de Carga
 ```
-========== LOAD TEST RESULTS ==========
-Total Requests:     500
-Successful:         500
-Failed:             0
-Duration:           1234ms
-Throughput:         405.18 req/s
+========== RESULTADOS DO TESTE DE CARGA ==========
+Total de Requisições:     500
+Bem-sucedidas:            500
+Falhas:                   0
+Duração:                  1234ms
+Throughput:               405.18 req/s
 
-Latency (successful requests):
+Latência (requisições bem-sucedidas):
   p50:              12.34ms
   p95:              45.67ms
   p99:              89.12ms
-  avg:              18.45ms
-  min:              2.10ms
-  max:              156.78ms
-========================================
+  média:            18.45ms
+  mín:              2.10ms
+  máx:              156.78ms
+================================================
 ```
 
-## Project Structure
+## Estrutura do Projeto
 
 ```
 src/
-├── domain/                 # Pure domain logic (no dependencies)
-│   ├── money/             # Money Value Object
-│   ├── wallet/            # Wallet Aggregate Root
-│   ├── wager/             # WagerTransaction Entity
+├── domain/                 # Lógica pura de domínio (sem dependências)
+│   ├── money/             # Value Object Money
+│   ├── wallet/            # Aggregate Root Wallet
+│   ├── wager/             # Entidade WagerTransaction
 │   ├── ledger/            # WalletLedgerEntry
-│   ├── inbox/             # Inbox Pattern
-│   └── outbox/            # Outbox Pattern
-├── application/           # Use cases & ports
-│   ├── use-cases/         # WagerUseCase, reconciliation
-│   └── ports/             # Repository interfaces
-├── infrastructure/        # Framework implementations
+│   ├── inbox/             # Padrão Inbox
+│   └── outbox/            # Padrão Outbox
+├── application/           # Casos de uso & ports
+│   ├── use-cases/         # WagerUseCase, reconciliação
+│   └── ports/             # Interfaces de repositório
+├── infrastructure/        # Implementações de framework
 │   ├── database/
-│   │   ├── entities/      # MikroORM entities
-│   │   ├── repositories/  # Repository implementations
-│   │   └── migrations/    # SQL migrations
+│   │   ├── entities/      # Entidades MikroORM
+│   │   ├── repositories/  # Implementações de repositório
+│   │   └── migrations/    # Migrations SQL
 │   └── messaging/
 │       ├── consumers/     # SQS Inbox Consumer, Pending Reference Worker
 │       └── publishers/    # Outbox Worker (SKIP LOCKED)
-├── interfaces/            # HTTP layer
+├── interfaces/            # Camada HTTP
 │   └── http/
 │       ├── wallets/
 │       ├── wagering/
 │       ├── health/
 │       └── auth/
-├── common/                # Shared utilities
+├── common/                # Utilitários compartilhados
 │   ├── shutdown/          # Graceful shutdown
-│   ├── logger/            # Structured JSON logger
-│   └── metrics/           # Metrics collector
-├── main.ts                # NestJS bootstrap
-└── workers.ts             # Background workers entry point
+│   ├── logger/            # Logger JSON estruturado
+│   └── metrics/           # Coletor de métricas
+├── main.ts                # Bootstrap NestJS
+└── workers.ts             # Entry point dos workers em background
 ```
 
-## Configuration
+## Configuração
 
-Environment variables:
+Variáveis de ambiente:
 
-| Variable | Default | Description |
+| Variável | Padrão | Descrição |
 |----------|---------|-------------|
-| `PORT` | 3000 | HTTP server port |
-| `DB_HOST` | localhost | PostgreSQL host |
-| `DB_PORT` | 5432 | PostgreSQL port |
-| `DB_NAME` | wagering | Database name |
-| `DB_USER` | wagering | Database user |
-| `DB_PASSWORD` | wagering | Database password |
-| `SQS_ENDPOINT` | http://localhost:4566 | LocalStack SQS endpoint |
-| `SQS_QUEUE_URL` | .../wager-transactions.fifo | Main SQS queue |
+| `PORT` | 3000 | Porta do servidor HTTP |
+| `DB_HOST` | localhost | Host do PostgreSQL |
+| `DB_PORT` | 5432 | Porta do PostgreSQL |
+| `DB_NAME` | wagering | Nome do database |
+| `DB_USER` | wagering | Usuário do database |
+| `DB_PASSWORD` | wagering | Senha do database |
+| `SQS_ENDPOINT` | http://localhost:4566 | Endpoint SQS do LocalStack |
+| `SQS_QUEUE_URL` | .../wager-transactions.fifo | Fila SQS principal |
 | `SQS_DLQ_URL` | .../wager-transactions-dlq.fifo | Dead letter queue |
-| `SQS_OUTBOX_QUEUE_URL` | .../wager-events.fifo | Outbox events queue |
-| `CONSUMER_NAME` | wager-worker-1 | Consumer identifier |
+| `SQS_OUTBOX_QUEUE_URL` | .../wager-events.fifo | Fila de eventos do outbox |
+| `CONSUMER_NAME` | wager-worker-1 | Identificador do consumidor |
 
-## Financial Invariants
+## Invariantes Financeiras
 
-The system guarantees these invariants even under:
-- Message duplication
-- Out-of-order delivery
-- Concurrent processing
-- Multiple application instances
-- Process crashes before/after commits
-- Message redelivery
-- Temporary PostgreSQL/SQS unavailability
+O sistema garante estas invariantes mesmo sob:
+- Duplicação de mensagens
+- Entrega fora de ordem
+- Processamento concorrente
+- Múltiplas instâncias da aplicação
+- Falhas de processo antes/depois de commits
+- Redelivery de mensagens
+- Indisponibilidade temporária do PostgreSQL/SQS
 
-### Core Invariants
-1. **No duplicate debit/credit** - Idempotency key + payload hash
-2. **No negative balance** - Checked in domain + DB constraint
-3. **Ledger matches balance** - Every change has ledger entry
-4. **Immutable ledger** - No UPDATE/DELETE on ledger_entries
-5. **Reconciliable** - `wallet.balance == SUM(ledger)`
-6. **Persistent idempotency** - Survives restarts
-6. **Atomic transactions** - All-or-nothing in single SQL txn
-7. **Recoverable messaging** - Inbox + Outbox patterns
-8. **Multi-instance correctness** - Pessimistic locking
+### Invariantes Principais
+1. **Sem débito/crédito duplicado** - Idempotency key + payload hash
+2. **Sem saldo negativo** - Verificado no domínio + constraint no DB
+3. **Ledger corresponde ao saldo** - Toda alteração tem lançamento no ledger
+4. **Ledger imutável** - Sem UPDATE/DELETE em ledger_entries
+5. **Reconciliável** - `wallet.balance == SOMA(ledger)`
+6. **Idempotência persistente** - Sobrevive a reinicializações
+7. **Transações atômicas** - Tudo-ou-nada em única transação SQL
+8. **Mensageria recuperável** - Padrões Inbox + Outbox
+9. **Corretude multi-instância** - Pessimistic locking
 
-## Docker Compose Services
+## Serviços do Docker Compose
 
 ```yaml
 services:
@@ -309,10 +306,10 @@ services:
   localstack:  # SQS via LocalStack
   app:         # NestJS API
   worker-1:    # SQS Consumer + Outbox + Pending Reference
-  worker-2:    # Additional consumer instance
-  worker-3:    # Additional consumer instance
+  worker-2:    # Instância adicional de consumer
+  worker-3:    # Instância adicional de consumer
 ```
 
-## License
+## Licença
 
 MIT

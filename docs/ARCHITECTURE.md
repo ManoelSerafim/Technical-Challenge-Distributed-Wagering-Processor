@@ -1,18 +1,17 @@
-# Architecture — Distributed Wagering Processor
+# Arquitetura — Distributed Wagering Processor
 
-## 1. Visão geral
+## 1. Visão Geral
 
 O **Distributed Wagering Processor** é um serviço financeiro distribuído responsável por processar transações de apostas recebidas de múltiplos provedores de jogos.
 
 O sistema deve preservar a correção financeira mesmo diante de:
-
-* mensagens duplicadas;
-* mensagens entregues fora de ordem;
-* processamento concorrente;
-* múltiplas instâncias da aplicação;
-* falhas de processo antes ou depois de commits;
-* redelivery de mensagens;
-* indisponibilidade temporária do PostgreSQL ou SQS.
+- mensagens duplicadas;
+- mensagens entregues fora de ordem;
+- processamento concorrente;
+- múltiplas instâncias da aplicação;
+- falhas de processo antes ou depois de commits;
+- redelivery de mensagens;
+- indisponibilidade temporária do PostgreSQL ou SQS.
 
 O objetivo principal da arquitetura é preservar os seguintes invariantes:
 
@@ -27,61 +26,57 @@ O objetivo principal da arquitetura é preservar os seguintes invariantes:
 
 ---
 
-# 2. Stack
+## 2. Stack Tecnológica
 
-| Componente                   | Tecnologia          |
-| ---------------------------- | ------------------- |
-| Runtime                      | Bun 1.x             |
-| Linguagem                    | TypeScript strict   |
-| Framework                    | NestJS              |
-| Banco de dados               | PostgreSQL          |
-| ORM                          | MikroORM            |
-| Mensageria                   | AWS SQS             |
-| Ambiente local de mensageria | LocalStack          |
-| Orquestração                 | Docker Compose      |
-| Testes                       | Bun test runner     |
-| Migrations                   | MikroORM migrations |
-
-O desafio permite MikroORM ou TypeORM e indica MikroORM como opção preferencial. Esta implementação utilizará MikroORM.
+| Componente | Tecnologia |
+|------------|------------|
+| Runtime | Bun 1.x |
+| Linguagem | TypeScript strict |
+| Framework | NestJS |
+| Banco de dados | PostgreSQL |
+| ORM | MikroORM |
+| Mensageria | AWS SQS |
+| Ambiente local de mensageria | LocalStack |
+| Orquestração | Docker Compose |
+| Testes | Bun test runner |
+| Migrations | MikroORM migrations |
 
 ---
 
-# 3. Princípios arquiteturais
+## 3. Princípios Arquiteturais
 
-## 3.1 Domain-first
+### 3.1 Domain-First
 
 As regras financeiras não devem depender de NestJS, MikroORM ou SQS.
 
 O domínio deve ser capaz de representar e validar:
-
-* dinheiro;
-* wallet;
-* transações de aposta;
-* lançamentos do ledger;
-* estados e transições;
-* regras de reversão.
+- dinheiro;
+- wallet;
+- transações de aposta;
+- lançamentos do ledger;
+- estados e transições;
+- regras de reversão.
 
 Infraestrutura será responsável por persistência, transporte e integração.
 
 ---
 
-## 3.2 Banco como última linha de defesa
+### 3.2 Banco como Última Linha de Defesa
 
 As invariantes críticas não serão protegidas somente pelo código da aplicação.
 
 O PostgreSQL também será responsável por garantir:
-
-* unicidade;
-* relacionamentos;
-* valores válidos;
-* não-negatividade quando aplicável;
-* integridade dos registros.
+- unicidade;
+- relacionamentos;
+- valores válidos;
+- não-negatividade quando aplicável;
+- integridade dos registros.
 
 Isso é especialmente importante porque múltiplas instâncias podem executar operações simultaneamente.
 
 ---
 
-## 3.3 Dinheiro nunca será representado por `number`
+### 3.3 Dinheiro Nunca Será Representado por `number`
 
 Valores monetários serão recebidos e serializados como strings decimais:
 
@@ -98,7 +93,7 @@ A implementação deverá utilizar representação decimal exata, sem `number`, 
 
 ---
 
-# 4. Arquitetura em alto nível
+## 4. Arquitetura em Alto Nível
 
 ```text
                        ┌──────────────────────┐
@@ -157,7 +152,7 @@ Isso evita que existam duas implementações diferentes das regras de negócio.
 
 ---
 
-# 5. Organização da aplicação
+## 5. Organização da Aplicação
 
 A estrutura inicial proposta é:
 
@@ -201,20 +196,19 @@ A separação acima representa responsabilidades, e não necessariamente uma obr
 
 ---
 
-# 6. Modelo de domínio
+## 6. Modelo de Domínio
 
-## 6.1 Money
+### 6.1 Money
 
 `Money` será um Value Object imutável.
 
 Responsabilidades:
-
-* representar valor decimal;
-* representar moeda;
-* realizar operações aritméticas;
-* impedir operações entre moedas diferentes;
-* validar escala;
-* impedir valores inválidos.
+- representar valor decimal;
+- representar moeda;
+- realizar operações aritméticas;
+- impedir operações entre moedas diferentes;
+- validar escala;
+- impedir valores inválidos.
 
 Interface conceitual:
 
@@ -241,7 +235,7 @@ O sistema poderá assumir BRL para o processamento do desafio, mas o modelo cont
 
 ---
 
-# 7. Wallet
+### 6.2 Wallet
 
 `Wallet` será o Aggregate Root responsável pelo saldo do jogador.
 
@@ -259,20 +253,19 @@ Wallet
 ```
 
 Invariantes:
-
-* somente uma wallet para cada `playerId + currency`;
-* saldo nunca negativo;
-* moeda da operação deve corresponder à moeda da wallet;
-* alteração de saldo precisa possuir lançamento correspondente;
-* operações concorrentes não podem causar lost update;
-* `version` começa em `1`;
-* `version` aumenta somente quando o saldo muda.
+- somente uma wallet para cada `playerId + currency`;
+- saldo nunca negativo;
+- moeda da operação deve corresponder à moeda da wallet;
+- alteração de saldo precisa possuir lançamento correspondente;
+- operações concorrentes não podem causar lost update;
+- `version` começa em `1`;
+- `version` aumenta somente quando o saldo muda.
 
 A wallet será reconstruída do banco através de uma factory `rehydrate`.
 
 ---
 
-# 8. WagerTransaction
+### 6.3 WagerTransaction
 
 Representa uma operação recebida do provedor.
 
@@ -313,73 +306,44 @@ Uma operação em estado terminal não pode ser processada novamente como uma no
 
 ---
 
-# 9. Regras financeiras
+### 6.4 Regras Financeiras
 
-| Operação |                  Saldo | Ledger            |
-| -------- | ---------------------: | ----------------- |
-| BET      |                 débito | DEBIT             |
-| WIN      |                crédito | CREDIT            |
-| LOSS     |          nenhum efeito | nenhum            |
-| REFUND   |                crédito | CREDIT            |
+| Operação | Saldo | Ledger |
+|----------|-------|--------|
+| BET | débito | DEBIT |
+| WIN | crédito | CREDIT |
+| LOSS | nenhum efeito | nenhum |
+| REFUND | crédito | CREDIT |
 | ROLLBACK | inversão da referência | entrada invertida |
 
-## BET
+#### BET
+Uma aposta debita o saldo. Se o saldo for insuficiente → `REJECTED`. Nenhum lançamento financeiro é criado.
 
-Uma aposta debita o saldo.
+#### WIN
+Um `WIN` credita o saldo. Pode possuir uma referência à `BET` da mesma rodada.
 
-Se o saldo for insuficiente:
+#### LOSS
+Não altera o saldo. Ainda assim, a transação pode atingir `PROCESSED` e gerar o evento correspondente.
 
-```text
-REJECTED
-```
+#### REFUND
+- exige referência;
+- referencia uma `BET`;
+- deve possuir o mesmo valor da referência;
+- credita o valor de volta;
+- só pode ocorrer uma vez para aquela referência.
 
-Nenhum lançamento financeiro é criado.
-
----
-
-## WIN
-
-Um `WIN` credita o saldo.
-
-Pode possuir uma referência à `BET` da mesma rodada.
-
----
-
-## LOSS
-
-Não altera o saldo.
-
-Ainda assim, a transação pode atingir `PROCESSED` e gerar o evento correspondente de processamento.
-
----
-
-## REFUND
-
-Um `REFUND`:
-
-* exige referência;
-* referencia uma `BET`;
-* deve possuir o mesmo valor da referência;
-* credita o valor de volta;
-* só pode ocorrer uma vez para aquela referência.
-
----
-
-## ROLLBACK
-
-Um `ROLLBACK`:
-
-* exige referência;
-* pode referenciar `BET`, `WIN` ou `REFUND`;
-* utiliza o mesmo valor da referência;
-* aplica o efeito inverso;
-* só pode ocorrer uma vez para aquela referência pelo mesmo tipo de operação.
+#### ROLLBACK
+- exige referência;
+- pode referenciar `BET`, `WIN` ou `REFUND`;
+- utiliza o mesmo valor da referência;
+- aplica o efeito inverso;
+- só pode ocorrer uma vez para aquela referência pelo mesmo tipo de operação.
 
 Uma reversão que produziria saldo negativo será rejeitada explicitamente.
 
 ---
 
-# 10. Idempotência
+### 6.5 Idempotência
 
 A idempotência será garantida no banco de dados.
 
@@ -390,166 +354,65 @@ Idempotency-Key: provider-a:transaction-123
 ```
 
 A chave recomendada é:
-
-```text
+```
 {providerId}:{externalTransactionId}
 ```
 
 Cada operação também terá:
-
-```text
+```
 payloadHash
 ```
 
-O hash será calculado a partir de um JSON canônico contendo os campos de negócio.
+O hash será calculado a partir de um JSON canônico contendo os campos de negócio. Headers e metadados de transporte não fazem parte do hash.
 
-Headers e metadados de transporte não fazem parte do hash.
+**Replay**: Se a mesma chave chegar novamente com o mesmo payload → retornar resultado original com `"idempotentReplay": true`.
 
-## Replay
-
-Se a mesma chave chegar novamente com o mesmo payload:
-
-```text
-mesma operação
-      ↓
-retornar resultado original
-```
-
-A resposta deverá indicar:
-
-```json
-{
-  "idempotentReplay": true
-}
-```
-
-## Conflito
-
-Se a mesma chave chegar com payload diferente:
-
-```text
-mesma key
-+
-payload diferente
-      ↓
-CONFLICT
-```
-
-Isso não será considerado replay.
-
-A garantia final será implementada por constraints e índices no PostgreSQL.
+**Conflito**: Se a mesma chave chegar com payload diferente → `CONFLICT` (409). A garantia final será implementada por constraints e índices no PostgreSQL.
 
 ---
 
-# 11. Concorrência
+### 6.6 Concorrência
 
-A unidade de concorrência será a:
-
-```text
-walletId
-```
+A unidade de concorrência será a: `walletId`
 
 A estratégia inicial será **pessimistic locking por wallet**.
 
-Durante uma operação financeira, a wallet será bloqueada dentro de uma transação SQL.
-
-Conceitualmente:
+Durante uma operação financeira, a wallet será bloqueada dentro de uma transação SQL:
 
 ```text
 BEGIN
-
-SELECT wallet
-FOR UPDATE
-
+SELECT wallet FOR UPDATE
 processar regra financeira
-
 atualizar saldo
-
 criar ledger
-
 atualizar transaction
-
 criar outbox
-
 COMMIT
 ```
 
-O lock será aplicado somente à wallet envolvida.
+O lock será aplicado somente à wallet envolvida. Wallets diferentes poderão continuar sendo processadas em paralelo. Não será utilizado lock global da aplicação.
 
-Wallets diferentes poderão continuar sendo processadas em paralelo.
+#### Exemplo de Concorrência
 
-Não será utilizado lock global da aplicação.
+Estado inicial: `Wallet balance = 100.00 BRL`
 
----
+Duas apostas chegam simultaneamente: `BET A = 80.00`, `BET B = 80.00`
 
-# 12. Exemplo de concorrência
+O banco serializa as operações sobre a mesma wallet.
+- Primeira: `100 - 80 = 20` → PROCESSED
+- Segunda: `20 - 80` → REJECTED (INSUFFICIENT_BALANCE)
 
-Estado inicial:
-
-```text
-Wallet
-balance = 100.00 BRL
-```
-
-Duas apostas chegam simultaneamente:
-
-```text
-BET A = 80.00
-BET B = 80.00
-```
-
-O banco deverá serializar as operações sobre a mesma wallet.
-
-Primeira operação:
-
-```text
-100 - 80 = 20
-```
-
-Segunda operação:
-
-```text
-20 - 80
-```
-
-Resultado:
-
-```text
-REJECTED
-```
-
-Estado final:
-
-```text
-balance = 20.00
-```
-
-Ledger:
-
-```text
-1 x DEBIT 80.00
-```
-
-Resultado esperado:
-
-```text
-BET A → PROCESSED
-BET B → REJECTED
-```
-
-A ordem específica entre A e B não é importante, desde que apenas uma seja processada.
+Estado final: `balance = 20.00`, Ledger: `1 x DEBIT 80.00`
+Resultado: `BET A → PROCESSED`, `BET B → REJECTED`
 
 ---
 
-# 13. Transação financeira
-
-A alteração financeira será atômica.
+### 6.7 Transação Financeira Atômica
 
 Uma operação financeira seguirá conceitualmente:
 
 ```text
 BEGIN
-
 1. carregar e bloquear Wallet
 2. validar operação
 3. validar idempotência
@@ -558,39 +421,23 @@ BEGIN
 6. criar LedgerEntry
 7. atualizar WagerTransaction
 8. criar OutboxMessage
-
 COMMIT
 ```
 
-Se qualquer etapa falhar:
-
-```text
-ROLLBACK
-```
-
-Nenhuma alteração parcial poderá permanecer.
+Se qualquer etapa falhar → `ROLLBACK`. Nenhuma alteração parcial poderá permanecer.
 
 ---
 
-# 14. Ledger
+### 6.8 Ledger
 
 O ledger será imutável.
 
 Um lançamento conterá:
-
 ```text
-id
-walletId
-transactionId
-direction
-money
-balanceBefore
-balanceAfter
-createdAt
+id, walletId, transactionId, direction, money, balanceBefore, balanceAfter, createdAt
 ```
 
 Exemplo:
-
 ```text
 balanceBefore = 100.00
 direction     = DEBIT
@@ -598,928 +445,336 @@ money         = 25.00
 balanceAfter  = 75.00
 ```
 
-A factory do ledger deverá verificar:
-
-```text
-balanceBefore - money == balanceAfter
-```
-
-para débitos, ou:
-
-```text
-balanceBefore + money == balanceAfter
-```
-
-para créditos.
+A factory do ledger verificará:
+- Para débitos: `balanceBefore - money == balanceAfter`
+- Para créditos: `balanceBefore + money == balanceAfter`
 
 Não existirão operações de atualização ou exclusão de lançamentos.
 
 ---
 
-# 15. Reconciliação
+### 6.9 Reconciliação
 
-O sistema disponibilizará:
+Endpoint: `POST /wallets/:walletId/reconciliation`
 
-```http
-POST /wallets/:walletId/reconciliation
-```
+Calcula o saldo através dos lançamentos do ledger e compara com o saldo materializado da wallet.
 
-A reconciliação calculará o saldo através dos lançamentos do ledger e comparará com o saldo materializado da wallet.
-
-Resultado esperado:
-
+Resultado:
 ```text
-storedBalance
-calculatedBalance
-difference
-consistent
-checkedEntries
+storedBalance, calculatedBalance, difference, consistent, checkedEntries
 ```
 
-Uma divergência não será corrigida automaticamente.
-
-Ela deverá:
-
-* ser registrada em log;
-* gerar métrica;
-* ser retornada na resposta.
+Uma divergência não será corrigida automaticamente. Será registrada em log, gerará métrica e será retornada na resposta.
 
 ---
 
-# 16. Processamento HTTP
+### 6.10 Processamento HTTP
+
+```text
+HTTP Request → Controller → DTO Validation → Application Use Case → Database Transaction (Wallet, WagerTransaction, Ledger, Outbox) → HTTP Response
+```
+
+O controller não conterá regras financeiras. Apenas: recebe requisição, valida contrato, cria contexto, chama use case, traduz resultado para HTTP.
+
+---
+
+### 6.11 Processamento Assíncrono (SQS)
+
+Fila principal: `wager-transactions.fifo`
+DLQ: `wager-transactions-dlq.fifo`
+
+O worker não implementa regras financeiras próprias. Utiliza o mesmo use case da API HTTP.
+
+```text
+SQS → Consumer → Inbox → Wager Use Case → PostgreSQL
+```
+
+---
+
+### 6.12 Inbox
+
+Deduplicação persistente para mensagens SQS.
+
+Chave lógica: `consumerName + messageId`
+
+Estado: `received`, `processedAt`, `payloadHash`
 
 Fluxo:
-
 ```text
-HTTP Request
-     │
-     ▼
-Controller
-     │
-     ▼
-DTO Validation
-     │
-     ▼
-Application Use Case
-     │
-     ▼
-Database Transaction
-     │
-     ├── WagerTransaction
-     ├── Wallet
-     ├── Ledger
-     └── Outbox
-     │
-     ▼
-HTTP Response
+Mensagem SQS → registrar Inbox → processar operação → commit → ack
 ```
 
-O controller não conterá regras financeiras.
-
-Ele apenas:
-
-* recebe a requisição;
-* valida o contrato;
-* cria o contexto da operação;
-* chama o use case;
-* traduz o resultado para HTTP.
-
----
-
-# 17. Processamento assíncrono
-
-As operações também poderão chegar através de SQS.
-
-Fila principal:
-
-```text
-wager-transactions.fifo
-```
-
-DLQ:
-
-```text
-wager-transactions-dlq.fifo
-```
-
-O worker não implementará regras financeiras próprias.
-
-Ele utilizará o mesmo use case usado pela API HTTP.
-
-```text
-SQS
- ↓
-Consumer
- ↓
-Inbox
- ↓
-Wager Use Case
- ↓
-PostgreSQL
-```
-
----
-
-# 18. Inbox
-
-A Inbox fornece deduplicação persistente para mensagens SQS.
-
-Chave lógica:
-
-```text
-consumerName + messageId
-```
-
-Estado:
-
-```text
-received
-processedAt
-payloadHash
-```
-
-Fluxo:
-
-```text
-Mensagem SQS
-      ↓
-registrar Inbox
-      ↓
-processar operação
-      ↓
-commit
-      ↓
-ack
-```
-
-O registro da Inbox, a operação financeira e a Outbox participarão da mesma transação SQL.
+O registro da Inbox, a operação financeira e a Outbox participam da mesma transação SQL.
 
 Se a mensagem for redelivered:
-
 ```text
-Inbox já processada
-       ↓
-não repetir efeito financeiro
-       ↓
-ack
+Inbox já processada → não repetir efeito financeiro → ack
 ```
 
 ---
 
-# 19. ACK e falhas
+### 6.13 ACK e Falhas
 
-O ACK da mensagem ocorrerá somente depois do commit.
+O ACK ocorrerá **somente depois do commit**.
 
-Não será feito:
-
+Fluxo correto:
 ```text
-processar
-ACK
-COMMIT
-```
-
-O fluxo correto é:
-
-```text
-processar
-COMMIT
-ACK
+processar → COMMIT → ACK
 ```
 
 Se o processo morrer depois do commit e antes do ACK:
-
 ```text
-COMMIT
-  ↓
-processo morre
-  ↓
-SQS redelivers
-  ↓
-Inbox detecta duplicata
-  ↓
-efeito financeiro não é repetido
+COMMIT → processo morre → SQS redelivers → Inbox detecta duplicata → efeito financeiro não é repetido
 ```
 
 ---
 
-# 20. Mensagens fora de ordem
+### 6.14 Mensagens Fora de Ordem
 
-Operações que dependem de uma referência que ainda não existe serão persistidas como:
+Operações que dependem de uma referência que ainda não existe → `PENDING_REFERENCE`.
 
-```text
-PENDING_REFERENCE
-```
+Exemplo: `REFUND BET-123` chega antes de `BET-123` → `PENDING_REFERENCE`.
 
-Exemplo:
-
-```text
-REFUND BET-123
-       ↓
-BET-123 ainda não chegou
-       ↓
-PENDING_REFERENCE
-```
-
-Um worker agendado tentará novamente com backoff exponencial.
-
-Fluxo:
-
-```text
-PENDING_REFERENCE
-       ↓
-retry
-       ↓
-referência encontrada?
-   ┌───┴───┐
-   │       │
-  sim     não
-   │       │
-   ▼       ▼
-processar retry
-           │
-           ▼
-      limite atingido
-           │
-           ▼
-        REJECTED
-```
-
-O limite de tentativas e o TTL serão definidos na implementação e documentados de acordo com o comportamento observado nos testes.
+Um worker agendado tentará novamente com backoff exponencial até limite de tentativas → `REJECTED`.
 
 ---
 
-# 21. Transactional Outbox
+### 6.15 Transactional Outbox
 
 A aplicação não publicará eventos diretamente no SQS antes do commit.
 
-Em vez disso:
-
 ```text
-Database Transaction
-       │
-       ├── Wallet
-       ├── WagerTransaction
-       ├── Ledger
-       └── Outbox
+Database Transaction → Wallet, WagerTransaction, Ledger, Outbox
+Commit → Outbox Worker → SQS
 ```
 
-Depois do commit:
+Isso evita: `Banco COMMIT → processo morre → evento perdido`
 
-```text
-Outbox Worker
-      ↓
-SQS
-```
-
-Isso evita o problema:
-
-```text
-Banco COMMIT
-     ↓
-processo morre
-     ↓
-evento perdido
-```
-
-Com Outbox:
-
-```text
-Banco COMMIT
-     ↓
-evento está persistido
-     ↓
-processo morre
-     ↓
-outro worker continua
-     ↓
-evento publicado
-```
+Com Outbox: `Banco COMMIT → evento persistido → processo morre → outro worker continua → evento publicado`
 
 ---
 
-# 22. Concorrência da Outbox
+### 6.16 Concorrência da Outbox
 
-Múltiplos publishers poderão processar a Outbox simultaneamente.
+Múltiplos publishers processam a Outbox simultaneamente.
 
-A estratégia será baseada em mecanismos de locking/transação do PostgreSQL.
+Estratégia: `SELECT ... FOR UPDATE SKIP LOCKED` no PostgreSQL.
 
-Um publisher deverá reservar os registros que está processando sem bloquear globalmente todos os demais publishers.
+Permite: `Publisher 1 → A, B`, `Publisher 2 → C, D`, `Publisher 3 → E, F` simultaneamente.
 
-O objetivo é permitir:
-
-```text
-Publisher 1 → eventos A, B
-Publisher 2 → eventos C, D
-Publisher 3 → eventos E, F
-```
-
-simultaneamente.
-
-Uma publicação duplicada deve ser considerada possível, pois a entrega externa continua sujeita a comportamento at-least-once.
-
-Consumidores deverão utilizar identificadores de evento para manter o processamento idempotente.
+Publicação duplicada é possível (at-least-once). Consumidores usam `eventId` para idempotência.
 
 ---
 
-# 23. Eventos
+### 6.17 Eventos
 
 Eventos mínimos:
+- `WagerTransactionProcessed`
+- `WagerTransactionRejected`
+- `WalletBalanceChanged`
+- `WagerTransactionPendingReference`
 
+`WalletBalanceChanged` só quando o saldo realmente mudar.
+
+Envelope versionado:
 ```text
-WagerTransactionProcessed
-WagerTransactionRejected
-WalletBalanceChanged
-WagerTransactionPendingReference
+eventId, eventType, aggregateId, correlationId, causationId, occurredAt, version, data
 ```
 
-`WalletBalanceChanged` será publicado somente quando o saldo realmente mudar.
-
-Cada evento possuirá envelope versionado contendo:
-
-```text
-eventId
-eventType
-aggregateId
-correlationId
-causationId
-occurredAt
-version
-data
-```
-
-O payload será serializável em JSON.
-
-Valores monetários continuarão sendo representados por strings decimais.
+Valores monetários continuam como strings decimais.
 
 ---
 
-# 24. Retry e DLQ
+### 6.18 Retry e DLQ
 
-Os erros serão classificados em três categorias.
+**Erro de negócio** (saldo insuficiente, referência inválida, moeda incompatível, payload conflitante): Terminais, não geram retries infinitos. Mensagem confirmada, transação fica como `REJECTED`.
 
-## Erro de negócio
+**Erro transitório** (PostgreSQL/SQS indisponível, timeout): Retry via mecanismo de backoff.
 
-Exemplos:
-
-```text
-saldo insuficiente
-referência inválida
-moeda incompatível
-payload conflitante
-```
-
-Esses erros são terminais e não devem gerar retries infinitos.
-
-A mensagem poderá ser confirmada e a transação permanecerá auditável como `REJECTED`.
+**Erro permanente**: Após limite de tentativas → DLQ para investigação operacional.
 
 ---
 
-## Erro transitório
+### 6.19 Shutdown
 
-Exemplos:
+Em `SIGTERM`, workers:
+1. param de aceitar novas mensagens;
+2. concluem mensagens em processamento;
+3. realizam commit antes do ACK;
+4. devolvem mensagens para redelivery se não for possível concluir.
 
-```text
-PostgreSQL temporariamente indisponível
-SQS temporariamente indisponível
-timeout
-```
-
-A mensagem deverá retornar para processamento posterior através do mecanismo de retry.
+Objetivo: evitar perda de mensagens durante deploys/reinicializações.
 
 ---
 
-## Erro permanente
+### 6.20 Autenticação
 
-Após o limite de tentativas:
+Não é prioridade da primeira implementação. A aplicação é estruturada para permitir inclusão posterior via abstração/guard (ex: Keycloak/Zitadel).
 
-```text
-retry
-retry
-retry
-...
-DLQ
-```
+Endpoints públicos: `GET /health/live`, `GET /health/ready`.
 
-A DLQ permitirá investigação operacional sem perder a mensagem original.
+Mensagens internas da fila tratadas como canal confiável, mas identidade do provider sujeita a validações de domínio.
 
 ---
 
-# 25. Shutdown
-
-Em `SIGTERM`, os workers deverão:
-
-1. parar de aceitar novas mensagens;
-2. concluir mensagens já em processamento quando possível;
-3. realizar commit antes do ACK;
-4. devolver mensagens para o mecanismo de redelivery caso não seja possível concluir o processamento.
-
-O objetivo é evitar perda de mensagens durante deploys ou reinicializações.
-
----
-
-# 26. Autenticação
-
-A autenticação não será prioridade da primeira implementação porque não representa pontuação relevante no desafio.
-
-O desafio recomenda utilizar um Identity Provider externo caso seja implementada, como Keycloak ou Zitadel.
-
-A aplicação será estruturada para permitir a inclusão de autenticação posteriormente através de uma abstração/guard.
-
-Os endpoints:
-
-```text
-GET /health/live
-GET /health/ready
-```
-
-permanecerão públicos.
-
-Mensagens internas da fila serão tratadas como provenientes de um canal confiável, porém a identidade do provider continuará sujeita às validações de domínio.
-
----
-
-# 27. API
+### 6.21 API
 
 Endpoints principais:
-
-```text
+```
 POST /wallets
-
 GET /wallets/:walletId
-
 GET /wallets/:walletId/ledger
-
 POST /wagering/transactions
-
 GET /wagering/transactions/:transactionId
-
 GET /providers/:providerId/wagering/transactions/:externalTransactionId
-
 POST /wallets/:walletId/reconciliation
-
 GET /health/live
-
 GET /health/ready
 ```
 
-O status HTTP deverá diferenciar:
-
-* payload inválido;
-* conflito de idempotência;
-* rejeição de negócio;
-* processamento pendente;
-* falha transitória de infraestrutura.
+Status HTTP diferenciam: payload inválido (400), conflito idempotência (409), rejeição negócio (422), processamento pendente, falha transitória (503).
 
 ---
 
-# 28. Modelo de dados inicial
+### 6.22 Modelo de Dados
 
-Modelo conceitual:
-
-```text
-players
-   │
-   │ 1
-   │
-   │ N
-wallets
-   │
-   ├───────────────┐
-   │               │
-   │               │
-   ▼               ▼
-wager_transactions ledger_entries
-   │
-   │
-   ├── inbox_messages
-   │
-   └── outbox_messages
+```
+players (1) ───< wallets (>─── wager_transactions
+                                    ├── ledger_entries
+                                    ├── inbox_messages
+                                    └── outbox_messages
 ```
 
-Principais entidades:
+**wallets**: `id, player_id, currency, balance, version, created_at, updated_at` + `UNIQUE(player_id, currency)`
 
-### wallets
+**wager_transactions**: `id, provider_id, external_transaction_id, idempotency_key, payload_hash, wallet_id, player_id, round_id, game_id, kind, amount, currency, reference_external_transaction_id, reference_transaction_id, status, failure_code, processed_at, created_at`
 
-```text
-id
-player_id
-currency
-balance
-version
-created_at
-updated_at
-```
+**ledger_entries**: `id, wallet_id, transaction_id, direction, amount, currency, balance_before, balance_after, created_at` (imutáveis)
 
-Constraint:
+**inbox_messages**: `message_id, consumer_name, payload_hash, received_at, processed_at` + `UNIQUE(consumer_name, message_id)`
 
-```text
-UNIQUE(player_id, currency)
-```
+**outbox_messages**: `id, aggregate_id, event_type, payload, occurred_at, attempts, next_attempt_at, published_at`
 
 ---
 
-### wager_transactions
+## 7. Decisões Arquiteturais Críticas
 
-```text
-id
-provider_id
-external_transaction_id
-idempotency_key
-payload_hash
-wallet_id
-player_id
-round_id
-game_id
-kind
-amount
-currency
-reference_external_transaction_id
-reference_transaction_id
-status
-failure_code
-processed_at
-created_at
+### 7.1 Pessimistic Locking por Wallet
+
+**Decisão**: Usar `SELECT ... FOR UPDATE` na wallet durante operações financeiras.
+
+**Alternativas**: Optimistic locking (versão), Lock global.
+
+**Racional**: 
+- Wallet é a unidade natural de concorrência
+- Serviços financeiros priorizam correção sobre throughput
+- PostgreSQL `FOR UPDATE` garante serialização cross-instâncias
+- Contenção limitada a wallets com operações concorrentes reais
+
+### 7.2 Money Value Object: Aritmética Decimal Exata
+
+**Decisão**: Value Object imutável com aritmética baseada em string/BigInt, escala 2.
+
+**Por que não `number`/`float`**:
+```typescript
+0.1 + 0.2 // 0.30000000000000004 ❌
 ```
 
-As constraints exatas serão definidas durante a criação das migrations.
+**Implementação**: `BigInt` em inteiros escalados (valor × 100). Todas operações retornam novas instâncias imutáveis. Currency mismatch lança erro.
 
----
+**Banco**: `NUMERIC(14,2)` + `CHAR(3)` para currency.
 
-### ledger_entries
+**Serialização**: Sempre strings no JSON: `{"amount": "25.00", "currency": "BRL"}`.
 
+### 7.3 Inbox + Outbox: Consistência Eventual Garantida
+
+**Problema**: Crash entre DB commit e SQS publish → evento perdido. Redelivery sem deduplicação → efeito duplicado.
+
+**Solução**: Dual persistence patterns.
+
+**Inbox (Consumer)**:
 ```text
-id
-wallet_id
-transaction_id
-direction
-amount
-currency
-balance_before
-balance_after
-created_at
+SQS Message → Inbox Table (consumerName + messageId UNIQUE) → Process → Mark Processed → ACK
+```
+- Deduplicação: constraint única `(consumerName, messageId)`
+- Atomicidade: Inbox + operação financeira + Outbox na **mesma transação SQL**
+- Redelivery: Se já em Inbox com `processedAt`, apenas ACK
+
+**Outbox (Producer)**:
+```text
+Operação Financeira → Outbox Table → Outbox Worker → SQS → Mark Published
+```
+- Confiabilidade: Eventos persistidos **antes** de publish externo
+- Paralelismo: `SELECT ... FOR UPDATE SKIP LOCKED`
+- Retry com backoff exponencial (1s, 2s, 4s... max 5min)
+
+**Garantia Combinada**:
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    SINGLE SQL TRANSACTION                   │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Lock Wallet (FOR UPDATE)                                 │
+│ 2. Validar & Aplicar Regras Financeiras                     │
+│ 3. Atualizar Wallet Balance + Version                       │
+│ 4. Criar Ledger Entry                                       │
+│ 5. Atualizar WagerTransaction Status                        │
+│ 6. Inserir Inbox Record (se do SQS)                         │
+│ 7. Inserir Outbox Record(s)                                 │
+│ 8. COMMIT                                                   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-Os registros serão imutáveis.
+### 7.4 Autenticação: Extension Point
 
----
+**Decisão**: Sem implementação v1. Abstração limpa para integração futura.
 
-### inbox_messages
+```typescript
+const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
-```text
-message_id
-consumer_name
-payload_hash
-received_at
-processed_at
+@Injectable()
+export class JwtAuthGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [...]);
+    if (isPublic) return true;
+    // TODO: Validar JWT quando implementado
+    return true;
+  }
+}
 ```
 
-Constraint:
-
-```text
-UNIQUE(consumer_name, message_id)
-```
+Endpoints de health permanecem públicos. Integração futura: validar JWT no guard, adicionar endpoint de token, remover fallback.
 
 ---
 
-### outbox_messages
+## 8. Trade-offs Aceitos
 
-```text
-id
-aggregate_id
-event_type
-payload
-occurred_at
-attempts
-next_attempt_at
-published_at
-```
+| Decisão | Trade-off | Mitigação |
+|---------|-----------|-----------|
+| Pessimistic locking | Contenção em wallets quentes | Sharding natural por walletId; monitorar `lock_conflicts` |
+| Escopo TXN single-wallet | Cross-wallet precisa saga | Não necessário no domínio atual |
+| Money string-based | Ligeiramente mais lento | Desprezível vs latência DB; correção paramount |
+| Inbox + Outbox tables | Storage + write amplification extra | Necessário para exactly-once; storage barato |
+| Sem auth v1 | Gap de segurança produção | Extension point claro; documentado |
 
 ---
 
-# 29. Fluxo completo de uma BET
-
-```text
-Provider
-   │
-   ▼
-POST /wagering/transactions
-   │
-   ▼
-Validate DTO
-   │
-   ▼
-Generate/validate payload hash
-   │
-   ▼
-BEGIN
-   │
-   ▼
-Check idempotency
-   │
-   ▼
-Lock Wallet
-   │
-   ▼
-Check balance
-   │
-   ├───────────────┐
-   │               │
- suficiente     insuficiente
-   │               │
-   ▼               ▼
-Debit          REJECTED
-   │               │
-   ▼               │
-Ledger             │
-   │               │
-   ▼               │
-Transaction        │
-   │               │
-   └───────┬───────┘
-           ▼
-        Outbox
-           │
-           ▼
-         COMMIT
-           │
-           ▼
-       HTTP Response
-```
-
----
-
-# 30. Fluxo de uma mensagem SQS
-
-```text
-SQS
- │
- ▼
-Consumer
- │
- ▼
-Check Inbox
- │
- ├── já processada → ACK
- │
- └── nova
-      │
-      ▼
-     BEGIN
-      │
-      ├── Inbox
-      ├── Wallet
-      ├── Transaction
-      ├── Ledger
-      └── Outbox
-      │
-      ▼
-    COMMIT
-      │
-      ▼
-     ACK
-```
-
----
-
-# 31. Observabilidade
-
-Os logs serão estruturados em JSON.
-
-Quando aplicável, conterão:
-
-```text
-correlationId
-messageId
-transactionId
-walletId
-providerId
-```
-
-Não serão registrados payloads financeiros completos ou dados sensíveis.
-
-Métricas mínimas:
-
-```text
-transactions_by_status
-duplicate_transactions
-retry_count
-dlq_messages
-lock_conflicts
-outbox_lag
-processing_latency
-```
-
-Health checks:
-
-```text
-/health/live
-/health/ready
-```
-
-`live` indica que o processo está funcionando.
-
-`ready` verifica a disponibilidade das dependências necessárias, especialmente PostgreSQL e SQS.
-
----
-
-# 32. Estratégia de testes
-
-## Unitários
-
-Serão testados:
-
-* `Money`;
-* `Wallet`;
-* regras de `BET`;
-* regras de `WIN`;
-* regras de `LOSS`;
-* `REFUND`;
-* `ROLLBACK`;
-* conflitos de moeda;
-* idempotency key com payload diferente.
-
----
-
-## Integração
-
-Os testes utilizarão PostgreSQL e LocalStack/MiniStack reais em containers.
-
-Serão testados:
-
-* migrations;
-* constraints;
-* atomicidade;
-* Inbox;
-* redelivery;
-* Outbox;
-* publishers concorrentes;
-* retry;
-* DLQ;
-* recuperação após reinicialização.
-
----
-
-## Concorrência
-
-Serão obrigatoriamente testados:
-
-```text
-50 requisições da mesma aposta em paralelo
-
-operações concorrentes disputando o saldo
-
-wallets diferentes em paralelo
-
-3 ou mais instâncias
-
-worker morto depois do commit e antes do ACK
-
-dois publishers concorrentes
-
-REFUND antes da BET
-
-ROLLBACK antes da referência
-
-reinicialização do serviço
-```
-
-A validação final deverá garantir:
-
-```text
-wallet.balance
-        ==
-saldo reconstruído pelo ledger
-```
-
----
-
-# 33. Invariantes verificadas
-
-Ao final dos testes, o sistema deverá garantir:
-
-```text
-No duplicate financial effects
-        +
-No negative balance
-        +
-Persistent idempotency
-        +
-Immutable ledger
-        +
-Atomic financial transaction
-        +
-Recoverable messaging
-        +
-Correctness with multiple instances
-```
-
-O banco e a aplicação devem trabalhar juntos para preservar essas invariantes.
-
----
-
-# 34. Trade-offs
-
-## Pessimistic locking vs optimistic locking
-
-A estratégia inicial será pessimistic locking por wallet.
-
-### Motivo
-
-O domínio possui uma unidade natural de concorrência:
-
-```text
-walletId
-```
-
-O lock permite serializar diretamente operações que disputam o mesmo saldo.
-
-Wallets diferentes permanecem independentes.
-
-### Trade-off
-
-Uma wallet com altíssimo volume de operações pode se tornar um ponto de contenção.
-
-Para o escopo do desafio, a simplicidade e a previsibilidade do locking são consideradas mais importantes que otimizações prematuras.
-
----
-
-## SQS FIFO
-
-A fila FIFO será utilizada conforme especificado pelo desafio.
-
-Porém, a consistência financeira **não dependerá exclusivamente da ordenação ou deduplicação do SQS**.
-
-O PostgreSQL continuará sendo a fonte de verdade das invariantes.
-
----
-
-## Inbox + Outbox
-
-A combinação aumenta a quantidade de persistência e processamento necessário, mas permite lidar de forma explícita com:
-
-* redelivery;
-* crash recovery;
-* publicação após commit;
-* duplicação de eventos.
-
-A complexidade adicional é aceita porque esses comportamentos fazem parte do problema central do desafio.
-
----
-
-## Saldo materializado + Ledger
-
-Manter o saldo materializado evita reconstruir o saldo inteiro do ledger a cada consulta.
-
-O ledger continua sendo necessário para auditoria e reconciliação.
-
-A reconciliação permite detectar divergências entre os dois.
-
----
-
-# 35. Limitações e escopo
-
-Para manter o escopo controlado:
-
-* será assumida uma única moeda operacional, BRL, embora o domínio seja multi-moeda;
-* não será implementado double-entry bookkeeping completo;
-* autenticação poderá permanecer como ponto de extensão;
-* não haverá correção automática de divergências de reconciliação;
-* não haverá reversão parcial;
-* otimizações avançadas de performance serão tratadas somente após a correção funcional;
-* dashboard de observabilidade e OpenTelemetry são opcionais.
-
-Qualquer decisão adicional tomada durante a implementação deverá ser registrada neste documento.
-
----
-
-# 36. Critério de sucesso
-
-A arquitetura será considerada correta quando os testes demonstrarem que o sistema permanece consistente sob:
-
-```text
-duplicação
-ordenação diferente
-concorrência
-redelivery
-crash
-retry
-múltiplas instâncias
-indisponibilidade temporária
-```
-
-O critério fundamental é:
-
+## 9. Verificação e Critérios de Sucesso
+
+### Testes de Concorrência (85 passando)
+- 50 BETs paralelas na mesma wallet → todas 50 PROCESSED, saldo 0
+- 2 BETs competindo (100 BRL, 80 cada) → 1 PROCESSED, 1 REJECTED
+- Wallets diferentes em paralelo → sem interferência
+- Idempotency replay → mesmo resultado
+- Idempotency conflict → 409
+- Reconciliação completa → `wallet.balance == ledger sum`
+- REFUND antes da BET → PENDING_REFERENCE → PROCESSED
+- ROLLBACK de WIN → reverte crédito
+
+### Critério Fundamental
 ```text
 wallet.balance == ledger reconstructed balance
+AND no duplicate debit
+AND no duplicate credit
+AND no negative balance
+AND no lost confirmed event
 ```
-
-e nenhum cenário poderá produzir:
-
-```text
-duplicate debit
-duplicate credit
-negative balance
-lost confirmed event
-```
-
-A implementação será guiada por estas invariantes, e não pela quantidade de endpoints ou operações CRUD implementadas.
