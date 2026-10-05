@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { Wallet, asPlayerId } from './wallet';
+import { Wallet, asPlayerId, asWalletId } from './wallet';
 import { Money } from '../money';
 
 describe('Wallet Aggregate Root', () => {
@@ -37,7 +37,7 @@ describe('Wallet Aggregate Root', () => {
   describe('Rehydration', () => {
     test('rehydrates wallet without validation', () => {
       const props = {
-        id: 'wallet-123' as any,
+        id: asWalletId('wallet-123'),
         playerId,
         currency: 'BRL',
         balance: Money.rehydrate('50.00', 'BRL'),
@@ -46,7 +46,7 @@ describe('Wallet Aggregate Root', () => {
         updatedAt: new Date('2024-01-10'),
       };
       const wallet = Wallet.rehydrate(props);
-      expect(wallet.id).toBe('wallet-123');
+      expect(String(wallet.id)).toBe('wallet-123');
       expect(wallet.balance.amount).toBe('50.00');
       expect(wallet.version).toBe(5);
     });
