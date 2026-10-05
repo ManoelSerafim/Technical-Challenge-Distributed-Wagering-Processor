@@ -6,9 +6,8 @@ import { WagerTransactionEntity } from './wager-transaction.entity';
 import { Money } from '@domain/money';
 
 @Entity({ tableName: 'ledger_entries' })
-@Index({ properties: ['walletId'] })
-@Index({ properties: ['transactionId'] })
-@Index({ properties: ['createdAt'] })
+@Index({ properties: ['wallet', 'createdAt'] })
+@Index({ properties: ['transaction', 'createdAt'] })
 export class LedgerEntryEntity {
   @PrimaryKey({ type: 'uuid' })
   id!: string;
@@ -16,14 +15,8 @@ export class LedgerEntryEntity {
   @ManyToOne(() => WalletEntity, { fieldName: 'wallet_id', deleteRule: 'cascade' })
   wallet!: WalletEntity;
 
-  @Property({ type: 'uuid' })
-  walletId!: string;
-
   @ManyToOne(() => WagerTransactionEntity, { fieldName: 'transaction_id', deleteRule: 'cascade' })
   transaction!: WagerTransactionEntity;
-
-  @Property({ type: 'uuid' })
-  transactionId!: string;
 
   @Enum(() => LedgerDirectionEnum)
   direction!: LedgerDirection;
@@ -43,6 +36,14 @@ export class LedgerEntryEntity {
   @Property({ onCreate: () => new Date() })
   createdAt!: Date;
 
+  get walletId(): string {
+    return this.wallet?.id;
+  }
+
+  get transactionId(): string {
+    return this.transaction?.id;
+  }
+
   toDomain(): WalletLedgerEntry {
     return WalletLedgerEntry.rehydrate({
       id: this.id,
@@ -60,8 +61,8 @@ export class LedgerEntryEntity {
     const entity = new LedgerEntryEntity();
     const snapshot = entry.toSnapshot();
     entity.id = snapshot.id;
-    entity.walletId = snapshot.walletId;
-    entity.transactionId = snapshot.transactionId;
+    entity.wallet = undefined as unknown as WalletEntity;
+    entity.transaction = undefined as unknown as WagerTransactionEntity;
     entity.direction = snapshot.direction;
     entity.amount = snapshot.amount.amount;
     entity.currency = snapshot.amount.currency;

@@ -6,7 +6,7 @@ import { WalletEntity } from './wallet.entity';
 @Entity({ tableName: 'wager_transactions' })
 @Index({ properties: ['providerId', 'externalTransactionId'] })
 @Index({ properties: ['idempotencyKey'] })
-@Index({ properties: ['walletId', 'status'] })
+@Index({ properties: ['wallet', 'status'] })
 @Index({ properties: ['referenceExternalTransactionId'] })
 export class WagerTransactionEntity {
   @PrimaryKey({ type: 'uuid' })
@@ -26,9 +26,6 @@ export class WagerTransactionEntity {
 
   @ManyToOne(() => WalletEntity, { fieldName: 'wallet_id', deleteRule: 'cascade' })
   wallet!: WalletEntity;
-
-  @Property({ type: 'uuid' })
-  walletId!: string;
 
   @Property({ type: 'uuid' })
   playerId!: string;
@@ -69,6 +66,10 @@ export class WagerTransactionEntity {
   @Property({ onUpdate: () => new Date() })
   updatedAt!: Date;
 
+  get walletId(): string {
+    return this.wallet?.id;
+  }
+
   toDomain(): WagerTransaction {
     return WagerTransaction.rehydrate({
       id: this.id,
@@ -101,7 +102,7 @@ export class WagerTransactionEntity {
     entity.externalTransactionId = snapshot.externalTransactionId;
     entity.idempotencyKey = snapshot.idempotencyKey;
     entity.payloadHash = snapshot.payloadHash;
-    entity.walletId = snapshot.walletId;
+    entity.wallet = undefined as unknown as WalletEntity; // Will be set via walletId reference
     entity.playerId = snapshot.playerId;
     entity.roundId = snapshot.roundId;
     entity.gameId = snapshot.gameId;
