@@ -14,23 +14,48 @@ import {
 } from '../ports/wager.port';
 import { WagerTransactionKind, WagerTransactionStatus } from '@domain/wager';
 import { LedgerDirection, WalletLedgerEntry } from '@domain/ledger';
+import { StructuredLogger, LogContext } from '@common/logger/structured-logger';
+import { MetricsCollector, METRIC_NAMES } from '@common/metrics/metrics';
 
 export class WagerUseCase {
+  private readonly logger: StructuredLogger;
+  private readonly metrics: MetricsCollector;
+
   constructor(
     private readonly walletRepo: WalletRepository,
     private readonly transactionRepo: WagerTransactionRepository,
     private readonly ledgerRepo: LedgerRepository,
     private readonly outboxRepo: OutboxRepository,
-    private readonly em: EntityManager
-  ) {}
+    private readonly em: EntityManager,
+    logger?: StructuredLogger,
+    metrics?: MetricsCollector
+  ) {
+    this.logger = logger || new StructuredLogger('WagerUseCase');
+    this.metrics = metrics || new MetricsCollector();
+  }
 
   async processWager(command: ProcessWagerCommand): Promise<ProcessWagerResult> {
+    const startTime = Date.now();
+    const baseContext: LogContext = {
+      correlationId: command.idempotencyKey,
+      walletId: command.walletId,
+      providerId: command.providerId,
+      playerId: command.playerId,
+      operation: 'processWager',
+      kind: command.kind,
+    };
+
+    this.logger.log('Processing wager transaction', baseContext);
+
     return this.em.transactional(async () => {
       const existingByIdempotency = await this.transactionRepo.findByIdempotencyKey(command.idempotencyKey);
       if (existingByIdempotency) {
         if (existingByIdempotency.payloadHash !== command.payloadHash) {
+          this.metrics.incrementCounter(METRIC_NAMES.IDEMPOTENCY_CONFLICTS, { providerId: command.providerId });
+          this.logger.warn('Idempotency conflict detected', { ...baseContext, status: 'conflict' });
           throw new Error('IDEMPOTENCY_CONFLICT');
         }
+        this.logger.log('Idempotent replay', { ...baseContext, status: 'replay', transactionId: existingByIdempotency.id });
         return {
           transactionId: existingByIdempotency.id,
           status: existingByIdempotency.status,
@@ -41,10 +66,12 @@ export class WagerUseCase {
 
       const wallet = await this.walletRepo.findByIdLocked(command.walletId, this.em);
       if (!wallet) {
+        this.logger.warn('Wallet not found', { ...baseContext, status: 'wallet_not_found' });
         throw new Error('WALLET_NOT_FOUND');
       }
 
       if (wallet.currency !== command.amount.currency) {
+        this.logger.warn('Currency mismatch', { ...baseContext, status: 'currency_mismatch', walletCurrency: wallet.currency, txCurrency: command.amount.currency });
         throw new Error('CURRENCY_MISMATCH');
       }
 
@@ -57,6 +84,7 @@ export class WagerUseCase {
         transaction.markRejected('REFERENCE_NOT_FOUND');
         await this.transactionRepo.saveInTransaction(transaction, this.em);
         await this.publishEvents(transaction, wallet);
+        this.logger.warn('Reference not found', { ...baseContext, status: 'rejected', failureCode: 'REFERENCE_NOT_FOUND' });
         return {
           transactionId: transaction.id,
           status: WagerTransactionStatus.REJECTED,
@@ -73,6 +101,16 @@ export class WagerUseCase {
       await this.walletRepo.saveInTransaction(wallet, this.em);
       await this.transactionRepo.saveInTransaction(transaction, this.em);
       await this.publishEvents(transaction, wallet);
+
+      const durationMs = Date.now() - startTime;
+      this.metrics.recordHistogram(METRIC_NAMES.TRANSACTIONS_DURATION_MS, durationMs, { kind: command.kind });
+      this.metrics.incrementCounter(METRIC_NAMES.TRANSACTIONS_BY_STATUS, { kind: command.kind, status: transaction.status });
+
+      if (transaction.status === WagerTransactionStatus.REJECTED) {
+        this.logger.warn('Transaction rejected', { ...baseContext, status: 'rejected', failureCode: transaction.failureCode, durationMs });
+      } else {
+        this.logger.log('Transaction processed', { ...baseContext, status: 'processed', transactionId: transaction.id, balanceAfter: wallet.balance.amount, durationMs });
+      }
 
       return {
         transactionId: transaction.id,
@@ -365,6 +403,11 @@ export class WagerUseCase {
   }
 
   async reconcile(walletId: WalletId): Promise<ReconciliationResult> {
+    const startTime = Date.now();
+    const context: LogContext = { walletId, operation: 'reconcile' };
+    
+    this.logger.log('Starting reconciliation', context);
+
     const wallet = await this.walletRepo.findById(walletId);
     if (!wallet) {
       throw new Error('WALLET_NOT_FOUND');
@@ -384,6 +427,25 @@ export class WagerUseCase {
     const difference = wallet.balance.subtract(calculatedBalance);
     const consistent = difference.isZero();
 
+    const durationMs = Date.now() - startTime;
+    this.metrics.recordHistogram(METRIC_NAMES.RECONCILIATION_DURATION_MS, durationMs);
+    
+    if (!consistent) {
+      this.metrics.incrementCounter(METRIC_NAMES.RECONCILIATION_DIVERGENCES, { walletId });
+      this.logger.warn('Reconciliation divergence detected', { 
+        ...context, 
+        storedBalance: wallet.balance.amount,
+        calculatedBalance: calculatedBalance.amount,
+        difference: difference.amount,
+      });
+    } else {
+      this.logger.log('Reconciliation successful', { 
+        ...context, 
+        balance: wallet.balance.amount,
+        durationMs,
+      });
+    }
+
     return {
       walletId,
       storedBalance: wallet.balance,
@@ -400,7 +462,9 @@ export function createWagerUseCase(
   transactionRepo: WagerTransactionRepository,
   ledgerRepo: LedgerRepository,
   outboxRepo: OutboxRepository,
-  em: EntityManager
+  em: EntityManager,
+  logger?: StructuredLogger,
+  metrics?: MetricsCollector
 ): WagerUseCase {
-  return new WagerUseCase(walletRepo, transactionRepo, ledgerRepo, outboxRepo, em);
+  return new WagerUseCase(walletRepo, transactionRepo, ledgerRepo, outboxRepo, em, logger, metrics);
 }

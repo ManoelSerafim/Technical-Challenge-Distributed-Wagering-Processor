@@ -10,14 +10,17 @@ import { WagerTransactionStatus } from '@domain/wager';
 import { mikroOrmConfig } from '@infrastructure/database/mikro-orm.config';
 import { WalletId, PlayerId, Money } from '@application/ports/wager.port';
 import { WagerTransaction } from '@domain/wager';
+import { Shutdownable } from '@common/shutdown/shutdown.service';
 
-export class PendingReferenceWorker {
+export class PendingReferenceWorker implements Shutdownable {
   private readonly orm: MikroORM;
   private readonly maxRetries: number = 10;
   private readonly baseDelayMs: number = 5000;
   private readonly maxDelayMs: number = 300000;
   private running: boolean = false;
+  private processing: boolean = false;
   private pollInterval: number = 10000;
+  private shutdownPromise: Promise<void> | null = null;
 
   constructor() {
     this.orm = MikroORM.initSync(mikroOrmConfig);
@@ -29,21 +32,50 @@ export class PendingReferenceWorker {
 
     while (this.running) {
       try {
-        await this.reprocessPendingReferences();
+        if (!this.processing) {
+          await this.reprocessPendingReferences();
+        } else {
+          await this.sleep(100);
+        }
       } catch (error) {
-        console.error('[PendingReferenceWorker] Error:', error);
+        if (this.running) {
+          console.error('[PendingReferenceWorker] Error:', error);
+        }
       }
-      await this.sleep(this.pollInterval);
+      if (this.running) {
+        await this.sleep(this.pollInterval);
+      }
+    }
+
+    if (this.shutdownPromise) {
+      await this.shutdownPromise;
     }
   }
 
-  async stop(): Promise<void> {
-    console.log('[PendingReferenceWorker] Stopping...');
+  async shutdown(): Promise<void> {
+    console.log('[PendingReferenceWorker] Initiating graceful shutdown...');
     this.running = false;
+
+    this.shutdownPromise = new Promise((resolve) => {
+      const checkProcessing = () => {
+        if (this.processing) {
+          setTimeout(checkProcessing, 500);
+        } else {
+          resolve();
+        }
+      };
+      checkProcessing();
+    });
+
+    await this.shutdownPromise;
     await this.orm.close();
+    console.log('[PendingReferenceWorker] Graceful shutdown complete');
   }
 
   private async reprocessPendingReferences(): Promise<void> {
+    if (!this.running) return;
+
+    this.processing = true;
     const em = this.orm.em.fork();
 
     try {
@@ -68,6 +100,7 @@ export class PendingReferenceWorker {
       }
     } finally {
       await em.close();
+      this.processing = false;
     }
   }
 
@@ -135,10 +168,11 @@ export class PendingReferenceWorker {
 
       console.log(`[PendingReferenceWorker] Successfully processed ${transaction.id} with reference ${referenceTxn.id}`);
     } catch (error) {
-      if (error.message === 'REFERENCE_NOT_FOUND' || error.message === 'REFERENCE_NOT_TERMINAL' ||
-          error.message === 'INVALID_REFERENCE_KIND' || error.message === 'AMOUNT_MISMATCH' ||
-          error.message === 'DUPLICATE_REFUND' || error.message === 'DUPLICATE_ROLLBACK' ||
-          error.message === 'ROLLBACK_WOULD_NEGATIVE_BALANCE') {
+      if (error instanceof Error && (
+        error.message === 'REFERENCE_NOT_FOUND' || error.message === 'REFERENCE_NOT_TERMINAL' ||
+        error.message === 'INVALID_REFERENCE_KIND' || error.message === 'AMOUNT_MISMATCH' ||
+        error.message === 'DUPLICATE_REFUND' || error.message === 'DUPLICATE_ROLLBACK' ||
+        error.message === 'ROLLBACK_WOULD_NEGATIVE_BALANCE')) {
         console.log(`[PendingReferenceWorker] Business rejection for ${transaction.id}: ${error.message}`);
         transaction.markRejected(error.message);
         await this.updateTransaction(transaction, em);
@@ -187,12 +221,12 @@ async function main() {
   const worker = new PendingReferenceWorker();
   
   process.on('SIGTERM', async () => {
-    await worker.stop();
+    await worker.shutdown();
     process.exit(0);
   });
 
   process.on('SIGINT', async () => {
-    await worker.stop();
+    await worker.shutdown();
     process.exit(0);
   });
 

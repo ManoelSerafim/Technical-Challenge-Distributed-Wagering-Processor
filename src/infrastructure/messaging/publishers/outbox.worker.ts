@@ -2,15 +2,18 @@ import { EntityManager, MikroORM, LockMode } from '@mikro-orm/core';
 import { SQSClient, SendMessageBatchCommand } from '@aws-sdk/client-sqs';
 import { OutboxMessageEntity } from '@infrastructure/database/entities/outbox-message.entity';
 import { mikroOrmConfig } from '@infrastructure/database/mikro-orm.config';
+import { Shutdownable } from '@common/shutdown/shutdown.service';
 
-export class OutboxWorker {
+export class OutboxWorker implements Shutdownable {
   private readonly sqsClient: SQSClient;
   private readonly queueUrl: string;
   private readonly orm: MikroORM;
   private readonly batchSize: number = 10;
   private readonly workerId: string;
   private running: boolean = false;
+  private processing: boolean = false;
   private pollInterval: number = 500;
+  private shutdownPromise: Promise<void> | null = null;
 
   constructor() {
     this.sqsClient = new SQSClient({
@@ -32,21 +35,48 @@ export class OutboxWorker {
 
     while (this.running) {
       try {
-        await this.publishPending();
+        if (!this.processing) {
+          await this.publishPending();
+        } else {
+          await this.sleep(100);
+        }
       } catch (error) {
-        console.error(`[${this.workerId}] Error publishing events:`, error);
-        await this.sleep(this.pollInterval);
+        if (this.running) {
+          console.error(`[${this.workerId}] Error publishing events:`, error);
+          await this.sleep(this.pollInterval);
+        }
       }
+    }
+
+    if (this.shutdownPromise) {
+      await this.shutdownPromise;
     }
   }
 
-  async stop(): Promise<void> {
-    console.log(`[${this.workerId}] Stopping Outbox Worker...`);
+  async shutdown(): Promise<void> {
+    console.log(`[${this.workerId}] Initiating graceful shutdown...`);
     this.running = false;
+
+    this.shutdownPromise = new Promise((resolve) => {
+      const checkProcessing = () => {
+        if (this.processing) {
+          setTimeout(checkProcessing, 500);
+        } else {
+          resolve();
+        }
+      };
+      checkProcessing();
+    });
+
+    await this.shutdownPromise;
     await this.orm.close();
+    console.log(`[${this.workerId}] Graceful shutdown complete`);
   }
 
   private async publishPending(): Promise<void> {
+    if (!this.running) return;
+
+    this.processing = true;
     const em = this.orm.em.fork();
 
     try {
@@ -102,13 +132,13 @@ export class OutboxWorker {
       }
     } finally {
       await em.close();
+      this.processing = false;
     }
   }
 
   private async reserveMessages(em: EntityManager): Promise<OutboxMessageEntity[]> {
     const now = new Date();
 
-    // Use SELECT ... FOR UPDATE SKIP LOCKED to allow parallel workers
     const messages = await em.createQueryBuilder(OutboxMessageEntity, 'o')
       .select('*')
       .where({
@@ -155,12 +185,12 @@ async function main() {
   const worker = new OutboxWorker();
   
   process.on('SIGTERM', async () => {
-    await worker.stop();
+    await worker.shutdown();
     process.exit(0);
   });
 
   process.on('SIGINT', async () => {
-    await worker.stop();
+    await worker.shutdown();
     process.exit(0);
   });
 

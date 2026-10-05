@@ -7,6 +7,7 @@ import { HealthController } from './health/health.controller';
 import { HealthService } from './health/health.service';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { APP_GUARD } from '@nestjs/core';
+import { ShutdownService } from '../../common/shutdown/shutdown.service';
 
 @Module({
   controllers: [
@@ -18,6 +19,7 @@ import { APP_GUARD } from '@nestjs/core';
     WalletService,
     WageringService,
     HealthService,
+    ShutdownService,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
@@ -27,6 +29,7 @@ import { APP_GUARD } from '@nestjs/core';
     WalletService,
     WageringService,
     HealthService,
+    ShutdownService,
   ],
 })
 export class HttpModule {}

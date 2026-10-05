@@ -9,6 +9,7 @@
     "start": "bun run src/main.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
+    "test:load": "bun run scripts/load-test.ts",
     "lint": "bunx eslint src --ext .ts",
     "typecheck": "bunx tsc --noEmit",
     "db:generate": "bunx mikro-orm migration:create",

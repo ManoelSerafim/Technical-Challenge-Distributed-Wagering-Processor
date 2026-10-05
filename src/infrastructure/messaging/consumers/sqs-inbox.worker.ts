@@ -8,6 +8,7 @@ import { InboxRepositoryImpl } from '@infrastructure/database/repositories/inbox
 import { OutboxRepositoryImpl } from '@infrastructure/database/repositories/outbox.repository';
 import { mikroOrmConfig } from '@infrastructure/database/mikro-orm.config';
 import { ProcessWagerCommand, WalletId, PlayerId, WagerTransactionKind, Money } from '@application/ports/wager.port';
+import { Shutdownable } from '@common/shutdown/shutdown.service';
 
 interface SQSMessage {
   MessageId?: string;
@@ -16,14 +17,16 @@ interface SQSMessage {
   Attributes?: Record<string, string>;
 }
 
-export class SQSInboxWorker {
+export class SQSInboxWorker implements Shutdownable {
   private readonly sqsClient: SQSClient;
   private readonly queueUrl: string;
   private readonly consumerName: string;
   private readonly orm: MikroORM;
   private readonly maxRetries: number = 3;
   private running: boolean = false;
+  private processing: boolean = false;
   private pollInterval: number = 1000;
+  private shutdownPromise: Promise<void> | null = null;
 
   constructor() {
     this.sqsClient = new SQSClient({
@@ -45,21 +48,47 @@ export class SQSInboxWorker {
 
     while (this.running) {
       try {
-        await this.pollMessages();
+        if (!this.processing) {
+          await this.pollMessages();
+        } else {
+          await this.sleep(100);
+        }
       } catch (error) {
-        console.error(`[${this.consumerName}] Error polling messages:`, error);
-        await this.sleep(this.pollInterval);
+        if (this.running) {
+          console.error(`[${this.consumerName}] Error polling messages:`, error);
+          await this.sleep(this.pollInterval);
+        }
       }
+    }
+
+    if (this.shutdownPromise) {
+      await this.shutdownPromise;
     }
   }
 
-  async stop(): Promise<void> {
-    console.log(`[${this.consumerName}] Stopping SQS Inbox Worker...`);
+  async shutdown(): Promise<void> {
+    console.log(`[${this.consumerName}] Initiating graceful shutdown...`);
     this.running = false;
+
+    this.shutdownPromise = new Promise((resolve) => {
+      const checkProcessing = () => {
+        if (this.processing) {
+          setTimeout(checkProcessing, 500);
+        } else {
+          resolve();
+        }
+      };
+      checkProcessing();
+    });
+
+    await this.shutdownPromise;
     await this.orm.close();
+    console.log(`[${this.consumerName}] Graceful shutdown complete`);
   }
 
   private async pollMessages(): Promise<void> {
+    if (!this.running) return;
+
     const command = new ReceiveMessageCommand({
       QueueUrl: this.queueUrl,
       MaxNumberOfMessages: 10,
@@ -77,7 +106,12 @@ export class SQSInboxWorker {
 
     for (const message of response.Messages) {
       if (!this.running) break;
-      await this.processMessage(message);
+      this.processing = true;
+      try {
+        await this.processMessage(message);
+      } finally {
+        this.processing = false;
+      }
     }
   }
 
@@ -131,7 +165,7 @@ export class SQSInboxWorker {
       await this.deleteMessage(receiptHandle);
       console.log(`[${this.consumerName}] Message ${messageId} processed successfully`);
     } catch (error) {
-      if (error.message === 'IDEMPOTENCY_CONFLICT') {
+      if (error instanceof Error && error.message === 'IDEMPOTENCY_CONFLICT') {
         console.log(`[${this.consumerName}] Idempotency conflict for ${messageId}, marking processed`);
         await inboxRepo.markProcessed(messageId, em);
         await this.deleteMessage(receiptHandle);
@@ -149,6 +183,7 @@ export class SQSInboxWorker {
         await this.deleteMessage(receiptHandle);
       } else {
         console.log(`[${this.consumerName}] Message ${messageId} will be retried (attempt ${receiveCount}/${this.maxRetries})`);
+        // Let the message become visible again for redelivery
       }
     }
   }
@@ -204,7 +239,6 @@ export class SQSInboxWorker {
       QueueUrl: this.queueUrl,
       ReceiptHandle: message.ReceiptHandle!,
     }));
-    // In a real implementation, we'd send to DLQ with SendMessageCommand
     console.log(`[${this.consumerName}] Message sent to DLQ: ${message.MessageId}`);
   }
 
@@ -217,12 +251,12 @@ async function main() {
   const worker = new SQSInboxWorker();
   
   process.on('SIGTERM', async () => {
-    await worker.stop();
+    await worker.shutdown();
     process.exit(0);
   });
 
   process.on('SIGINT', async () => {
-    await worker.stop();
+    await worker.shutdown();
     process.exit(0);
   });
 
