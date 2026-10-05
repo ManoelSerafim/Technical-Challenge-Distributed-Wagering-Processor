@@ -39,6 +39,104 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wagering-app
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: wagering
+      DB_USER: wagering
+      DB_PASSWORD: wagering
+      SQS_ENDPOINT: http://localstack:4566
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+      SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+      SQS_OUTBOX_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
+      CONSUMER_NAME: wager-worker-1
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    command: bun run src/main.ts
+
+  worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wagering-worker-1
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: wagering
+      DB_USER: wagering
+      DB_PASSWORD: wagering
+      SQS_ENDPOINT: http://localstack:4566
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+      SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+      SQS_OUTBOX_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
+      CONSUMER_NAME: wager-worker-1
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    command: bun run src/workers.ts
+
+  worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wagering-worker-2
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: wagering
+      DB_USER: wagering
+      DB_PASSWORD: wagering
+      SQS_ENDPOINT: http://localstack:4566
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+      SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+      SQS_OUTBOX_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
+      CONSUMER_NAME: wager-worker-2
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    command: bun run src/workers.ts
+
+  worker-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wagering-worker-3
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: wagering
+      DB_USER: wagering
+      DB_PASSWORD: wagering
+      SQS_ENDPOINT: http://localstack:4566
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+      SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+      SQS_OUTBOX_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
+      CONSUMER_NAME: wager-worker-3
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    command: bun run src/workers.ts
+
 volumes:
   postgres_data:
   localstack_data:
